@@ -1,6 +1,6 @@
 from spark_session import get_spark
 
-DATA_PATH = "/data/brfss2023_diabetes_analysis.csv"
+DATA_PATH = "data/brfss2023_diabetes_analysis.csv"
 
 spark = get_spark()
 
