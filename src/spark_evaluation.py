@@ -5,30 +5,90 @@ from pyspark.ml.evaluation import (
     MulticlassClassificationEvaluator
 )
 
-spark=get_spark()
+import pandas as pd
 
-prediction=spark.read.parquet(
+
+spark = get_spark()
+
+
+print("==============================")
+print("STEP 8 - MODEL EVALUATION")
+print("==============================")
+
+
+prediction = spark.read.parquet(
     "output/rf_prediction"
 )
 
-auc_eval=BinaryClassificationEvaluator(
+
+print("\nConfusion Matrix")
+
+prediction.groupBy(
+    "label",
+    "prediction"
+).count().show()
+
+
+# AUC
+
+auc_eval = BinaryClassificationEvaluator(
     labelCol="label",
     metricName="areaUnderROC"
 )
 
-auc=auc_eval.evaluate(prediction)
 
-accuracy_eval=MulticlassClassificationEvaluator(
+auc = auc_eval.evaluate(
+    prediction
+)
+
+
+# Accuracy
+
+acc_eval = MulticlassClassificationEvaluator(
     labelCol="label",
     predictionCol="prediction",
     metricName="accuracy"
 )
 
-accuracy=accuracy_eval.evaluate(prediction)
 
-print("AUC:",auc)
+accuracy = acc_eval.evaluate(
+    prediction
+)
 
-print("Accuracy:",accuracy)
+
+print("AUC:")
+print(auc)
+
+
+print("Accuracy:")
+print(accuracy)
+
+
+
+# Save metrics
+
+metrics = pd.DataFrame(
+    {
+        "model": [
+            "Random Forest"
+        ],
+        "AUC": [
+            auc
+        ],
+        "Accuracy": [
+            accuracy
+        ]
+    }
+)
+
+
+metrics.to_csv(
+    "output/bdas_metrics.csv",
+    index=False
+)
+
+
+print("Saved: bdas_metrics.csv")
 
 
 spark.stop()
