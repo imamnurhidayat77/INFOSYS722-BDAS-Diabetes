@@ -1,0 +1,9 @@
+standard,band_code,band_label,bmi_lower_inclusive,bmi_upper_exclusive
+WHO_International,1,Underweight,0.0,18.5
+WHO_International,2,Normal weight,18.5,25.0
+WHO_International,3,Overweight,25.0,30.0
+WHO_International,4,Obese,30.0,999.0
+WHO_AsiaPacific,1,Underweight,0.0,18.5
+WHO_AsiaPacific,2,Normal weight,18.5,23.0
+WHO_AsiaPacific,3,Overweight,23.0,25.0
+WHO_AsiaPacific,4,Obese,25.0,999.0
