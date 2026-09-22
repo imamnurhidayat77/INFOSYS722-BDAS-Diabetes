@@ -33,7 +33,7 @@ lr_model=lr.fit(train)
 lr_prediction=lr_model.transform(test)
 
 lr_prediction.write.mode("overwrite") \
-    .parquet("../output/lr_prediction")
+    .parquet("output/lr_prediction")
 
 
 # Random Forest
@@ -49,6 +49,6 @@ rf_model=rf.fit(train)
 rf_prediction=rf_model.transform(test)
 
 rf_prediction.write.mode("overwrite") \
-    .parquet("../output/rf_prediction")
+    .parquet("output/rf_prediction")
 
 spark.stop()

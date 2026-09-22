@@ -8,7 +8,7 @@ from pyspark.ml.evaluation import (
 spark=get_spark()
 
 prediction=spark.read.parquet(
-    "../output/rf_prediction"
+    "output/rf_prediction"
 )
 
 auc_eval=BinaryClassificationEvaluator(
