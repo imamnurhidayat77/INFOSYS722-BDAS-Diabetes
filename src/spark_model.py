@@ -8,7 +8,7 @@ from pyspark.ml.classification import (
 spark=get_spark()
 
 df=spark.read.parquet(
-    "../data/model_ready.parquet"
+    "data/model_ready.parquet"
 )
 
 df=df.withColumnRenamed(

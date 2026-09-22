@@ -5,7 +5,7 @@ from pyspark.ml.feature import VectorAssembler
 spark=get_spark()
 
 df=spark.read.parquet(
-    "../data/clean_diabetes.parquet"
+    "data/clean_diabetes.parquet"
 )
 
 target="Diabetes_binary"
@@ -28,7 +28,7 @@ df_final=df_vector.select(
 )
 
 df_final.write.mode("overwrite") \
-    .parquet("../data/model_ready.parquet")
+    .parquet("data/model_ready.parquet")
 
 df_final.show(5)
 

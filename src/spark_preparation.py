@@ -1,7 +1,7 @@
 from spark_session import get_spark
 from pyspark.sql.functions import col
 
-DATA_PATH="../data/brfss2023_prepared.csv"
+DATA_PATH="data/brfss2023_diabetes_analysis.csv"
 
 spark=get_spark()
 
@@ -27,6 +27,6 @@ print("After cleaning:")
 print(df_clean.count())
 
 df_clean.write.mode("overwrite") \
-    .parquet("../data/clean_diabetes.parquet")
+    .parquet("data/clean_diabetes.parquet")
 
 spark.stop()
