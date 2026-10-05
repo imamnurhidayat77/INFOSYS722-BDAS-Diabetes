@@ -1,6 +1,5 @@
 # Spark output
 data/
-output/
 
 # Python cache
 __pycache__/
