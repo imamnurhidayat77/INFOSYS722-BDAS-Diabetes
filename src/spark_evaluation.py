@@ -27,9 +27,6 @@ from pyspark.ml.evaluation import (
 )
 
 
-import math
-
-
 
 spark = get_spark()
 
@@ -42,9 +39,8 @@ print("=" * 70)
 
 
 # =====================================================
-# PROBABILITY EXTRACTION
+# Probability extractor
 # =====================================================
-
 
 def extract_probability(v):
 
@@ -66,7 +62,6 @@ probability_udf = udf(
 # MODEL FILES
 # =====================================================
 
-
 models = {
 
     "Logistic Regression":
@@ -85,11 +80,6 @@ models = {
 
 
 
-# =====================================================
-# EVALUATORS
-# =====================================================
-
-
 auc_eval = BinaryClassificationEvaluator(
     labelCol="Diabetes_binary",
     rawPredictionCol="rawPrediction",
@@ -98,24 +88,16 @@ auc_eval = BinaryClassificationEvaluator(
 
 
 
-# =====================================================
-# STORAGE
-# =====================================================
-
-
-model_results = []
+results = []
 
 
 
 # =====================================================
-# FUNCTION
+# CLASSIFIER EVALUATION FUNCTION
 # =====================================================
 
 
-def evaluate_model(
-    name,
-    df
-):
+def evaluate_model(name, df):
 
 
     print("\n")
@@ -125,34 +107,34 @@ def evaluate_model(
 
 
 
-    # -------------------------------------
-    # AUC
-    # -------------------------------------
-
     auc = auc_eval.evaluate(df)
 
 
 
-    # -------------------------------------
+    # -----------------------------
     # CONFUSION MATRIX
-    # -------------------------------------
+    # -----------------------------
 
     print("\nConfusion Matrix")
 
-
-    df.groupBy(
-        "Diabetes_binary",
-        "prediction"
-    ).count().show()
+    (
+        df
+        .groupBy(
+            "Diabetes_binary",
+            "prediction"
+        )
+        .count()
+        .show()
+    )
 
 
 
     tp = (
         df
         .filter(
-            (col("Diabetes_binary") == 1)
+            (col("Diabetes_binary")==1)
             &
-            (col("prediction") == 1)
+            (col("prediction")==1)
         )
         .count()
     )
@@ -161,9 +143,9 @@ def evaluate_model(
     tn = (
         df
         .filter(
-            (col("Diabetes_binary") == 0)
+            (col("Diabetes_binary")==0)
             &
-            (col("prediction") == 0)
+            (col("prediction")==0)
         )
         .count()
     )
@@ -172,9 +154,9 @@ def evaluate_model(
     fp = (
         df
         .filter(
-            (col("Diabetes_binary") == 0)
+            (col("Diabetes_binary")==0)
             &
-            (col("prediction") == 1)
+            (col("prediction")==1)
         )
         .count()
     )
@@ -183,9 +165,9 @@ def evaluate_model(
     fn = (
         df
         .filter(
-            (col("Diabetes_binary") == 1)
+            (col("Diabetes_binary")==1)
             &
-            (col("prediction") == 0)
+            (col("prediction")==0)
         )
         .count()
     )
@@ -199,26 +181,23 @@ def evaluate_model(
     )
 
 
+
     precision = (
-        tp /
-        (tp + fp)
+        tp / (tp + fp)
         if tp + fp > 0
         else 0
     )
 
 
     recall = (
-        tp /
-        (tp + fn)
+        tp / (tp + fn)
         if tp + fn > 0
         else 0
     )
 
 
     f1 = (
-        2 *
-        precision *
-        recall /
+        2 * precision * recall /
         (precision + recall)
         if precision + recall > 0
         else 0
@@ -228,17 +207,17 @@ def evaluate_model(
 
     print("\nMetrics")
 
-    print("AUC       :", auc)
-    print("Accuracy  :", accuracy)
-    print("Precision :", precision)
-    print("Recall    :", recall)
-    print("F1        :", f1)
+    print("AUC:", auc)
+    print("Accuracy:", accuracy)
+    print("Precision:", precision)
+    print("Recall:", recall)
+    print("F1:", f1)
 
 
 
-    # -------------------------------------
+    # =================================================
     # RANKING METRICS
-    # -------------------------------------
+    # =================================================
 
 
     scored = (
@@ -258,7 +237,7 @@ def evaluate_model(
     total_positive = (
         scored
         .filter(
-            col("Diabetes_binary") == 1
+            col("Diabetes_binary")==1
         )
         .count()
     )
@@ -266,14 +245,23 @@ def evaluate_model(
 
 
     ranking_window = (
+
         Window
-        .orderBy(
-            desc("positive_probability")
+        .partitionBy(
+            lit(1)
         )
+        .orderBy(
+            desc(
+                "positive_probability"
+            )
+        )
+
     )
 
 
+
     ranked = (
+
         scored
         .withColumn(
             "rank",
@@ -282,6 +270,7 @@ def evaluate_model(
                 ranking_window
             )
         )
+
     )
 
 
@@ -299,15 +288,13 @@ def evaluate_model(
     )
 
 
-
     top20_positive = (
         top20
         .filter(
-            col("Diabetes_binary") == 1
+            col("Diabetes_binary")==1
         )
         .count()
     )
-
 
 
     top20_gain = (
@@ -322,17 +309,87 @@ def evaluate_model(
     )
 
 
-    places_per_true_case = (
+    places_per_case = (
         top20_limit /
         top20_positive
     )
 
 
 
+    # 60% operating point
+
+    cumulative_window = (
+
+        Window
+        .partitionBy(
+            lit(1)
+        )
+        .orderBy(
+            desc(
+                "positive_probability"
+            )
+        )
+        .rowsBetween(
+            Window.unboundedPreceding,
+            0
+        )
+
+    )
+
+
+
+    ranked = (
+        ranked
+        .withColumn(
+            "cumulative_positive",
+            spark_sum(
+                col("Diabetes_binary")
+            )
+            .over(
+                cumulative_window
+            )
+        )
+    )
+
+
+    target = total_positive * 0.60
+
+
+    reach60 = (
+
+        ranked
+        .filter(
+            col("cumulative_positive")
+            >= target
+        )
+        .orderBy(
+            "rank"
+        )
+        .first()
+
+    )
+
+
+    if reach60:
+
+        contacts60 = reach60["rank"]
+
+        depth60 = (
+            contacts60 /
+            total_records
+        )
+
+    else:
+
+        contacts60 = None
+        depth60 = None
+
+
+
     print("\nRanking Metrics")
 
     print(
-        "Top20 Capture:",
+        "Top20 Gain:",
         top20_gain
     )
 
@@ -343,89 +400,17 @@ def evaluate_model(
 
     print(
         "Places per true case:",
-        places_per_true_case
+        places_per_case
     )
-
-
-
-    # -------------------------------------
-    # OPERATING POINT 60%
-    # -------------------------------------
-
-
-    cumulative_window = (
-        Window
-        .orderBy(
-            desc("positive_probability")
-        )
-        .rowsBetween(
-            Window.unboundedPreceding,
-            0
-        )
-    )
-
-
-    ranked = (
-        ranked
-        .withColumn(
-            "cumulative_positive",
-
-            spark_sum(
-                col("Diabetes_binary")
-            )
-            .over(
-                cumulative_window
-            )
-
-        )
-    )
-
-
-
-    target_positive = (
-        total_positive * 0.60
-    )
-
-
-
-    reach60 = (
-        ranked
-        .filter(
-            col("cumulative_positive")
-            >=
-            target_positive
-        )
-        .orderBy("rank")
-        .first()
-    )
-
-
-
-    if reach60:
-
-        contacts_60 = reach60["rank"]
-
-        depth_60 = (
-            contacts_60 /
-            total_records
-        )
-
-    else:
-
-        contacts_60 = None
-        depth_60 = None
-
-
 
     print(
-        "Contacts to 60% capture:",
-        contacts_60
+        "Contacts to 60%:",
+        contacts60
     )
 
-
     print(
-        "Depth to 60% capture:",
-        depth_60
+        "Depth to 60%:",
+        depth60
     )
 
 
@@ -449,65 +434,55 @@ def evaluate_model(
         "Top20_Lift": float(top20_lift),
 
         "Places_Per_True_Case": float(
-            places_per_true_case
+            places_per_case
         ),
 
-        "Contacts_to_60pct": contacts_60,
+        "Contacts_to_60pct": contacts60,
 
-        "Depth_to_60pct": depth_60
+        "Depth_to_60pct": depth60
 
     }
 
 
 
 # =====================================================
-# RUN CLASSIFIERS
+# RUN MODELS
 # =====================================================
 
 
 for name, path in models.items():
 
-
     df = spark.read.parquet(path)
-
 
     result = evaluate_model(
         name,
         df
     )
 
-
-    model_results.append(
-        result
-    )
+    results.append(result)
 
 
 
 # =====================================================
-# MODEL COMPARISON TABLE
+# MODEL COMPARISON
 # =====================================================
 
 
-comparison_df = spark.createDataFrame(
-    model_results
+comparison = spark.createDataFrame(
+    results
 )
 
 
-
-print("\n")
-print("=" * 60)
-print("FINAL MODEL COMPARISON")
-print("=" * 60)
+print("\nFINAL MODEL COMPARISON")
 
 
-comparison_df.show(
+comparison.show(
     truncate=False
 )
 
 
-
 (
-    comparison_df
+    comparison
     .coalesce(1)
     .write
     .mode("overwrite")
@@ -523,7 +498,7 @@ comparison_df.show(
 
 
 # =====================================================
-# BASELINE RISKTEST5
+# RISKTEST5 BASELINE RANKING
 # =====================================================
 
 
@@ -534,57 +509,109 @@ print("=" * 60)
 
 
 
-baseline = spark.read.parquet(
+gbt_df = spark.read.parquet(
     "data/result_gbt.parquet"
 )
 
 
 
-baseline_count = (
-    baseline
+baseline_window = (
+
+    Window
+    .partitionBy(
+        lit(1)
+    )
+    .orderBy(
+        desc("RiskTest5")
+    )
+
+)
+
+
+
+baseline_ranked = (
+
+    gbt_df
+    .withColumn(
+        "baseline_rank",
+        row_number()
+        .over(
+            baseline_window
+        )
+    )
+
+)
+
+
+
+total_records = baseline_ranked.count()
+
+
+total_positive = (
+    baseline_ranked
     .filter(
-        col("RiskTest5_flag") == 1
+        col("Diabetes_binary")==1
     )
     .count()
+)
+
+
+
+top20_limit = int(
+    total_records * 0.20
+)
+
+
+
+baseline_top20 = (
+    baseline_ranked
+    .filter(
+        col("baseline_rank")
+        <= top20_limit
+    )
 )
 
 
 
 baseline_positive = (
-    baseline
+    baseline_top20
     .filter(
-        (col("RiskTest5_flag") == 1)
-        &
-        (col("Diabetes_binary") == 1)
+        col("Diabetes_binary")==1
     )
     .count()
 )
 
 
 
-print(
-    "Baseline flagged:",
-    baseline_count
+baseline_capture = (
+    baseline_positive /
+    total_positive
 )
 
 
-print(
-    "Baseline true positives:",
+
+baseline_places = (
+    top20_limit /
     baseline_positive
 )
 
 
-print(
-    "Baseline places per true case:",
 
-    baseline_count /
-    baseline_positive
+print(
+    "Baseline Top20 Capture:",
+    baseline_capture
+)
+
+
+print(
+    "Baseline Places per True Case:",
+    baseline_places
 )
 
 
 
 # =====================================================
-# EQUITY ANALYSIS
+# BO4 EQUITY COMPARISON
 # =====================================================
 
 
@@ -595,21 +622,18 @@ print("=" * 60)
 
 
 
-gbt = spark.read.parquet(
-    "data/result_gbt.parquet"
-)
-
-
-
 equity = (
 
-    gbt
+    gbt_df
+
     .groupBy(
         "Income"
     )
+
     .agg(
 
         spark_sum(
+
             when(
                 (
                     col("Diabetes_binary")==1
@@ -626,11 +650,12 @@ equity = (
 
         )
         .alias(
-            "True_Positive"
+            "GBT_TP"
         ),
 
 
         spark_sum(
+
             when(
                 col("Diabetes_binary")==1,
 
@@ -642,6 +667,29 @@ equity = (
         )
         .alias(
             "Actual_Positive"
+        ),
+
+
+        spark_sum(
+
+            when(
+
+                (
+                    col("Diabetes_binary")==1
+                )
+                &
+                (
+                    col("RiskTest5_flag")==1
+                ),
+
+                1
+
+            )
+            .otherwise(0)
+
+        )
+        .alias(
+            "RiskTest_TP"
         )
 
     )
@@ -650,13 +698,37 @@ equity = (
 
 
 
-equity = equity.withColumn(
+equity = (
 
-    "Recall",
+    equity
 
-    col("True_Positive")
-    /
-    col("Actual_Positive")
+    .withColumn(
+        "GBT_Recall",
+
+        col("GBT_TP")
+        /
+        col("Actual_Positive")
+    )
+
+    .withColumn(
+
+        "RiskTest_Recall",
+
+        col("RiskTest_TP")
+        /
+        col("Actual_Positive")
+
+    )
+
+    .withColumn(
+
+        "Difference",
+
+        col("GBT_Recall")
+        -
+        col("RiskTest_Recall")
+
+    )
 
 )
 
@@ -678,7 +750,7 @@ equity.orderBy(
         True
     )
     .csv(
-        "data/income_equity_analysis"
+        "data/bo4_equity_comparison"
     )
 )
 
@@ -702,12 +774,6 @@ cluster_df = spark.read.parquet(
 
 
 
-cluster_df.groupBy(
-    "prediction"
-).count().show()
-
-
-
 silhouette = ClusteringEvaluator(
     featuresCol="features",
     predictionCol="prediction",
@@ -725,21 +791,9 @@ print(
 
 
 
-(
-    cluster_df
-    .groupBy(
-        "prediction"
-    )
-    .agg(
-
-        count("*")
-        .alias(
-            "cluster_size"
-        )
-
-    )
-    .show()
-)
+cluster_df.groupBy(
+    "prediction"
+).count().show()
 
 
 
