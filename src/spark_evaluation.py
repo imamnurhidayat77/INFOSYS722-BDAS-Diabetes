@@ -3,15 +3,8 @@ from spark_session import get_spark
 
 from pyspark.sql.functions import (
     col,
-    row_number,
-    count,
-    desc,
-    sum as spark_sum,
-    lit
+    desc
 )
-
-
-from pyspark.sql.window import Window
 
 
 from pyspark.ml.evaluation import (
@@ -30,11 +23,6 @@ print("==============================")
 print("STEP 8 - INTERPRETATION")
 print("==============================")
 
-
-
-# =====================================================
-# MODEL FILES
-# =====================================================
 
 
 models = {
@@ -56,9 +44,8 @@ models = {
 
 
 # =====================================================
-# EVALUATORS
+# BINARY EVALUATOR
 # =====================================================
-
 
 auc_eval = BinaryClassificationEvaluator(
     labelCol="Diabetes_binary",
@@ -68,20 +55,13 @@ auc_eval = BinaryClassificationEvaluator(
 
 
 
-multi_eval = MulticlassClassificationEvaluator(
-    labelCol="Diabetes_binary"
-)
-
-
-
 results = []
 
 
 
 # =====================================================
-# CLASSIFICATION EVALUATION
+# MODEL EVALUATION
 # =====================================================
-
 
 for name, path in models.items():
 
@@ -95,40 +75,57 @@ for name, path in models.items():
 
 
 
+    # AUC
+
     auc = auc_eval.evaluate(df)
 
 
 
-    accuracy = multi_eval.evaluate(
-        df,
-        {
-            "metricName":"accuracy"
-        }
+    # Accuracy
+
+    accuracy_eval = MulticlassClassificationEvaluator(
+        labelCol="Diabetes_binary",
+        predictionCol="prediction",
+        metricName="accuracy"
     )
 
+    accuracy = accuracy_eval.evaluate(df)
 
-    precision = multi_eval.evaluate(
-        df,
-        {
-            "metricName":"weightedPrecision"
-        }
+
+
+    # Precision
+
+    precision_eval = MulticlassClassificationEvaluator(
+        labelCol="Diabetes_binary",
+        predictionCol="prediction",
+        metricName="weightedPrecision"
     )
 
+    precision = precision_eval.evaluate(df)
 
-    recall = multi_eval.evaluate(
-        df,
-        {
-            "metricName":"weightedRecall"
-        }
+
+
+    # Recall
+
+    recall_eval = MulticlassClassificationEvaluator(
+        labelCol="Diabetes_binary",
+        predictionCol="prediction",
+        metricName="weightedRecall"
     )
 
+    recall = recall_eval.evaluate(df)
 
-    f1 = multi_eval.evaluate(
-        df,
-        {
-            "metricName":"f1"
-        }
+
+
+    # F1
+
+    f1_eval = MulticlassClassificationEvaluator(
+        labelCol="Diabetes_binary",
+        predictionCol="prediction",
+        metricName="f1"
     )
+
+    f1 = f1_eval.evaluate(df)
 
 
 
@@ -142,7 +139,6 @@ for name, path in models.items():
 
     print("\nConfusion Matrix")
 
-
     df.groupBy(
         "Diabetes_binary",
         "prediction"
@@ -154,28 +150,28 @@ for name, path in models.items():
     # TOP 20% GAIN / LIFT
     # =================================================
 
-
     ranked = (
         df
         .withColumn(
-            "probability_positive",
+            "positive_probability",
             col("probability")[1]
         )
         .orderBy(
-            desc("probability_positive")
+            desc("positive_probability")
         )
     )
 
 
-    total = ranked.count()
+    total_records = ranked.count()
 
 
-    top20_count = int(total * 0.2)
-
+    top20_records = int(
+        total_records * 0.2
+    )
 
 
     top20 = ranked.limit(
-        top20_count
+        top20_records
     )
 
 
@@ -195,7 +191,6 @@ for name, path in models.items():
         )
         .count()
     )
-
 
 
     gain = (
@@ -240,7 +235,7 @@ for name, path in models.items():
 
 
 # =====================================================
-# SAVE CLASSIFICATION METRICS
+# SAVE METRICS
 # =====================================================
 
 
@@ -260,6 +255,8 @@ metric_df = spark.createDataFrame(
 
 
 
+print("\nMODEL COMPARISON")
+
 metric_df.show()
 
 
@@ -277,7 +274,7 @@ metric_df.write \
 
 
 # =====================================================
-# KMEANS EVALUATION
+# KMEANS
 # =====================================================
 
 
@@ -300,6 +297,7 @@ cluster_df.groupBy(
 
 cluster_eval = ClusteringEvaluator(
     featuresCol="features",
+    predictionCol="prediction",
     metricName="silhouette"
 )
 
