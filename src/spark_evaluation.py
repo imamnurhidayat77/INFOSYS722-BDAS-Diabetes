@@ -3,8 +3,15 @@ from spark_session import get_spark
 
 from pyspark.sql.functions import (
     col,
-    desc
+    desc,
+    udf
 )
+
+
+from pyspark.sql.types import DoubleType
+
+
+from pyspark.ml.linalg import Vector
 
 
 from pyspark.ml.evaluation import (
@@ -25,6 +32,31 @@ print("==============================")
 
 
 
+# =====================================================
+# EXTRACT POSITIVE PROBABILITY
+# =====================================================
+
+def extract_probability(v):
+
+    if v is None:
+        return 0.0
+
+    return float(v[1])
+
+
+
+probability_udf = udf(
+    extract_probability,
+    DoubleType()
+)
+
+
+
+# =====================================================
+# MODEL FILES
+# =====================================================
+
+
 models = {
 
     "Logistic Regression":
@@ -43,10 +75,6 @@ models = {
 
 
 
-# =====================================================
-# BINARY EVALUATOR
-# =====================================================
-
 auc_eval = BinaryClassificationEvaluator(
     labelCol="Diabetes_binary",
     rawPredictionCol="rawPrediction",
@@ -60,8 +88,9 @@ results = []
 
 
 # =====================================================
-# MODEL EVALUATION
+# CLASSIFICATION EVALUATION
 # =====================================================
+
 
 for name, path in models.items():
 
@@ -75,57 +104,39 @@ for name, path in models.items():
 
 
 
-    # AUC
-
     auc = auc_eval.evaluate(df)
 
 
 
-    # Accuracy
-
-    accuracy_eval = MulticlassClassificationEvaluator(
+    accuracy = MulticlassClassificationEvaluator(
         labelCol="Diabetes_binary",
         predictionCol="prediction",
         metricName="accuracy"
-    )
-
-    accuracy = accuracy_eval.evaluate(df)
+    ).evaluate(df)
 
 
 
-    # Precision
-
-    precision_eval = MulticlassClassificationEvaluator(
+    precision = MulticlassClassificationEvaluator(
         labelCol="Diabetes_binary",
         predictionCol="prediction",
         metricName="weightedPrecision"
-    )
-
-    precision = precision_eval.evaluate(df)
+    ).evaluate(df)
 
 
 
-    # Recall
-
-    recall_eval = MulticlassClassificationEvaluator(
+    recall = MulticlassClassificationEvaluator(
         labelCol="Diabetes_binary",
         predictionCol="prediction",
         metricName="weightedRecall"
-    )
-
-    recall = recall_eval.evaluate(df)
+    ).evaluate(df)
 
 
 
-    # F1
-
-    f1_eval = MulticlassClassificationEvaluator(
+    f1 = MulticlassClassificationEvaluator(
         labelCol="Diabetes_binary",
         predictionCol="prediction",
         metricName="f1"
-    )
-
-    f1 = f1_eval.evaluate(df)
+    ).evaluate(df)
 
 
 
@@ -147,19 +158,23 @@ for name, path in models.items():
 
 
     # =================================================
-    # TOP 20% GAIN / LIFT
+    # TOP 20 GAIN / LIFT
     # =================================================
+
 
     ranked = (
         df
         .withColumn(
             "positive_probability",
-            col("probability")[1]
+            probability_udf(
+                col("probability")
+            )
         )
         .orderBy(
             desc("positive_probability")
         )
     )
+
 
 
     total_records = ranked.count()
@@ -175,6 +190,7 @@ for name, path in models.items():
     )
 
 
+
     total_positive = (
         ranked
         .filter(
@@ -184,6 +200,7 @@ for name, path in models.items():
     )
 
 
+
     top20_positive = (
         top20
         .filter(
@@ -191,6 +208,7 @@ for name, path in models.items():
         )
         .count()
     )
+
 
 
     gain = (
@@ -235,7 +253,7 @@ for name, path in models.items():
 
 
 # =====================================================
-# SAVE METRICS
+# SAVE MODEL COMPARISON
 # =====================================================
 
 
@@ -295,15 +313,11 @@ cluster_df.groupBy(
 
 
 
-cluster_eval = ClusteringEvaluator(
+silhouette = ClusteringEvaluator(
     featuresCol="features",
     predictionCol="prediction",
     metricName="silhouette"
-)
-
-
-
-silhouette = cluster_eval.evaluate(
+).evaluate(
     cluster_df
 )
 
