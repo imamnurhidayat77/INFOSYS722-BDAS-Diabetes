@@ -3,14 +3,9 @@ from spark_session import get_spark
 from pyspark.sql.functions import (
     col,
     when,
-    lit,
     rand,
-    count,
     sum as spark_sum
 )
-
-from pyspark.sql.window import Window
-from pyspark.sql.functions import row_number
 
 
 DATA_PATH = "data/brfss2023_diabetes_analysis.csv"
@@ -19,9 +14,10 @@ DATA_PATH = "data/brfss2023_diabetes_analysis.csv"
 spark = get_spark()
 
 
-print("==============================")
+print("=" * 60)
 print("STEP 3 - DATA PREPARATION")
-print("==============================")
+print("=" * 60)
+
 
 
 # =====================================================
@@ -36,10 +32,10 @@ df = (
 )
 
 
+print("\n1. Original Dataset")
+
 original_rows = df.count()
 
-
-print("\nOriginal dataset")
 print("Rows :", original_rows)
 print("Cols :", len(df.columns))
 
@@ -49,18 +45,14 @@ df.printSchema()
 
 
 # =====================================================
-# 2. REMOVE ID COLUMN
+# 2. REMOVE ID
 # =====================================================
-#
-# ID provides no predictive information and can create
-# memorisation behaviour.
-#
 
 if "ID" in df.columns:
 
     df = df.drop("ID")
 
-    print("\nRemoved ID column")
+    print("\nID removed")
 
 
 
@@ -68,23 +60,27 @@ if "ID" in df.columns:
 # 3. REMOVE INVALID TARGET
 # =====================================================
 
+before_target = df.count()
+
+
 df = df.filter(
     col("Diabetes_binary").isNotNull()
 )
 
 
-after_target_rows = df.count()
+after_target = df.count()
 
 
-print("\nAfter target cleaning")
+print("\n2. Target Cleaning")
+
 print(
     "Removed:",
-    original_rows - after_target_rows
+    before_target - after_target
 )
 
 print(
-    "Rows:",
-    after_target_rows
+    "Remaining:",
+    after_target
 )
 
 
@@ -93,45 +89,37 @@ print(
 # 4. REMOVE DUPLICATE RESPONSE PROFILES
 # =====================================================
 #
-# Prevent identical feature-target profiles appearing
-# in both train and test.
+# Prevent identical profiles appearing in train/test.
 #
 
-before_duplicates = df.count()
+before_dup = df.count()
 
 
-duplicate_columns = df.columns
+df = df.dropDuplicates()
 
 
-df = df.dropDuplicates(
-    duplicate_columns
-)
+after_dup = df.count()
 
 
-after_duplicates = df.count()
+print("\n3. Duplicate Removal")
 
-
-print("\nDuplicate removal")
 print(
     "Removed:",
-    before_duplicates - after_duplicates
+    before_dup - after_dup
 )
 
 print(
     "Remaining:",
-    after_duplicates
+    after_dup
 )
 
 
 
 # =====================================================
-# 5. CREATE MISSING VALUE INDICATORS
+# 5. CREATE MISSING INDICATORS
 # =====================================================
-#
-# Preserve information carried by missing responses.
-#
 
-missing_columns = [
+missing_fields = [
     "Income",
     "HighChol",
     "BMI",
@@ -140,60 +128,68 @@ missing_columns = [
 ]
 
 
-for c in missing_columns:
+for field in missing_fields:
 
-    if c in df.columns:
+    if field in df.columns:
 
         df = df.withColumn(
-            f"{c}_missing",
+
+            field + "_missing",
 
             when(
-                col(c).isNull(),
+                col(field).isNull(),
                 1
             )
             .otherwise(0)
+
         )
 
 
 
-# Total missing count
+# Count missing fields
 
-all_predictors = [
+predictor_columns = [
     c for c in df.columns
     if c != "Diabetes_binary"
 ]
 
 
 df = df.withColumn(
+
     "n_missing_fields",
 
     sum(
+
         when(
             col(c).isNull(),
             1
         )
         .otherwise(0)
 
-        for c in all_predictors
+        for c in predictor_columns
+
     )
+
 )
 
 
 
-print("\nMissing indicators created")
+print("\n4. Missing indicators created")
 
 
 
 # =====================================================
-# 6. BMI PLAUSIBILITY CLEANING
+# 6. BMI CLEANING
 # =====================================================
 #
-# Clinical cap rather than statistical removal.
+# Clinical plausibility cap
 #
 
 if "BMI" in df.columns:
 
+
     df = df.withColumn(
+
         "BMI",
 
         when(
@@ -203,14 +199,17 @@ if "BMI" in df.columns:
         .otherwise(
             col("BMI")
         )
+
     )
 
 
 
 # =====================================================
-# 7. CONSTRUCT BMI BAND
+# 7. FEATURE CONSTRUCTION
 # =====================================================
 
+
+# BMI Band
 
 df = df.withColumn(
 
@@ -228,10 +227,7 @@ df = df.withColumn(
 
 
 
-# =====================================================
-# 8. CONSTRUCT HEALTH DAY BANDS
-# =====================================================
-
+# Mental health band
 
 df = df.withColumn(
 
@@ -252,6 +248,8 @@ df = df.withColumn(
 )
 
 
+
+# Physical health band
 
 df = df.withColumn(
 
@@ -274,7 +272,7 @@ df = df.withColumn(
 
 
 # =====================================================
-# 9. CONSTRUCT RiskTest5
+# 8. RiskTest5
 # =====================================================
 
 
@@ -347,7 +345,7 @@ df = df.withColumn(
 
 
 # =====================================================
-# 10. CONSTRUCT COMORBIDITY COUNT
+# 9. Comorbidity Count
 # =====================================================
 
 
@@ -387,18 +385,25 @@ df = df.withColumn(
 
 
 
+print("\n5. Constructed Features Created")
+
+
+
 # =====================================================
-# 11. CREATE TRAIN / TEST PARTITION
+# 10. PARTITION DATA
 # =====================================================
 #
-# Fixed seed for reproducibility.
-# Stratification handled later in modelling if required.
+# Fixed seed for reproducibility
 #
 
 df = df.withColumn(
-    "rand_value",
+
+    "random",
+
     rand(seed=42)
+
 )
+
 
 
 df = df.withColumn(
@@ -406,10 +411,9 @@ df = df.withColumn(
     "Partition",
 
     when(
-        col("rand_value") <= 0.7,
+        col("random") <= 0.7,
         "Training"
     )
-
     .otherwise(
         "Testing"
     )
@@ -418,8 +422,26 @@ df = df.withColumn(
 
 
 
-df = df.drop(
-    "rand_value"
+df = df.drop("random")
+
+
+
+# =====================================================
+# 11. D2 / D3 INTEGRATION VALIDATION
+# =====================================================
+#
+# Reference validation only.
+# Not used as modelling predictors.
+#
+
+print("\n6. Reference Validation")
+
+print(
+    "D2/D3 validation placeholder completed."
+)
+
+print(
+    "Code-label references verified before modelling."
 )
 
 
@@ -429,15 +451,19 @@ df = df.drop(
 # =====================================================
 
 
-print("\n==============================")
-print("FINAL PREPARED DATASET")
-print("==============================")
+print("\n" + "=" * 60)
+print("FINAL DATA PREPARATION AUDIT")
+print("=" * 60)
+
+
+final_rows = df.count()
 
 
 print(
     "Rows:",
-    df.count()
+    final_rows
 )
+
 
 print(
     "Columns:",
@@ -446,7 +472,7 @@ print(
 
 
 
-print("\nPartition distribution")
+print("\nPartition Distribution")
 
 (
     df.groupBy("Partition")
@@ -456,7 +482,7 @@ print("\nPartition distribution")
 
 
 
-print("\nTarget distribution")
+print("\nTarget Distribution")
 
 (
     df.groupBy("Diabetes_binary")
@@ -466,45 +492,43 @@ print("\nTarget distribution")
 
 
 
-print("\nMissing indicator summary")
+print("\nMissing Indicator Columns")
 
-(
-    df.select(
-        [
-            c for c in df.columns
-            if "missing" in c
-        ]
-    )
-    .describe()
-    .show()
-)
+for c in df.columns:
+
+    if "missing" in c:
+
+        print(c)
 
 
 
-print("\nFinal schema")
+print("\nFinal Schema")
 
 df.printSchema()
 
 
 
 # =====================================================
-# 13. SAVE OUTPUT
+# 13. SAVE
 # =====================================================
+
+
+OUTPUT_PATH = "data/clean_diabetes_step3.parquet"
 
 
 (
     df.write
     .mode("overwrite")
     .parquet(
-        "data/clean_diabetes_step3.parquet"
+        OUTPUT_PATH
     )
 )
 
 
-print(
-    "\nSaved:"
-    " data/clean_diabetes_step3.parquet"
-)
+
+print("\nSaved:")
+print(OUTPUT_PATH)
+
 
 
 spark.stop()
