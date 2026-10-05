@@ -1,5 +1,10 @@
 from spark_session import get_spark
 
+from pyspark.sql.functions import (
+    col,
+    when
+)
+
 from pyspark.ml.classification import (
     LogisticRegression,
     DecisionTreeClassifier,
@@ -18,91 +23,170 @@ print("STEP 7 - DATA MINING")
 print("==============================")
 
 
-# Load transformed data
+# =====================================================
+# LOAD MODEL READY DATA
+# =====================================================
 
 df = spark.read.parquet(
     "data/model_ready.parquet"
 )
 
 
+# =====================================================
+# TRAIN / TEST SPLIT
+# =====================================================
+
 train = df.filter(
-    df.Partition == "Training"
+    col("Partition") == "Training"
 )
 
 
 test = df.filter(
-    df.Partition == "Testing"
+    col("Partition") == "Testing"
 )
 
 
-
-print("Training:")
+print("\nTraining rows:")
 print(train.count())
 
-print("Testing:")
+
+print("\nTesting rows:")
 print(test.count())
 
 
 
 # =====================================================
-# LOGISTIC REGRESSION
+# CREATE CLASS WEIGHT
+# =====================================================
+#
+# Handle imbalance:
+# minority class receives higher weight
+#
+
+class_count = (
+    train
+    .groupBy("Diabetes_binary")
+    .count()
+    .collect()
+)
+
+
+counts = {}
+
+for row in class_count:
+    counts[row["Diabetes_binary"]] = row["count"]
+
+
+majority = max(counts.values())
+minority = min(counts.values())
+
+
+minority_weight = majority / minority
+
+
+print("\nClass counts:")
+print(counts)
+
+
+print("\nMinority class weight:")
+print(minority_weight)
+
+
+
+train_weighted = train.withColumn(
+    "weight",
+    when(
+        col("Diabetes_binary") == 1,
+        minority_weight
+    )
+    .otherwise(1.0)
+)
+
+
+
+# =====================================================
+# 1. LOGISTIC REGRESSION
 # =====================================================
 
 lr = LogisticRegression(
     featuresCol="features",
     labelCol="Diabetes_binary",
+    weightCol="weight",
     maxIter=100
 )
 
 
-lr_model = lr.fit(train)
+lr_model = lr.fit(
+    train_weighted
+)
 
 
-lr_result = lr_model.transform(test)
+lr_result = lr_model.transform(
+    test
+)
+
+
+print("\nLogistic completed")
 
 
 
 # =====================================================
-# DECISION TREE
+# 2. DECISION TREE
 # =====================================================
 
 dt = DecisionTreeClassifier(
     featuresCol="features",
     labelCol="Diabetes_binary",
+    weightCol="weight",
     maxDepth=5,
     seed=42
 )
 
 
-dt_model = dt.fit(train)
+dt_model = dt.fit(
+    train_weighted
+)
 
 
-dt_result = dt_model.transform(test)
+dt_result = dt_model.transform(
+    test
+)
+
+
+print("Decision Tree completed")
 
 
 
 # =====================================================
-# RANDOM FOREST
+# 3. RANDOM FOREST
 # =====================================================
 
 rf = RandomForestClassifier(
     featuresCol="features",
     labelCol="Diabetes_binary",
+    weightCol="weight",
     numTrees=100,
     maxDepth=8,
     seed=42
 )
 
 
-rf_model = rf.fit(train)
+rf_model = rf.fit(
+    train_weighted
+)
 
 
-rf_result = rf_model.transform(test)
+rf_result = rf_model.transform(
+    test
+)
+
+
+print("Random Forest completed")
 
 
 
 # =====================================================
-# GRADIENT BOOSTED TREE
+# 4. GRADIENT BOOSTED TREE
 # =====================================================
 
 gbt = GBTClassifier(
@@ -114,37 +198,47 @@ gbt = GBTClassifier(
 )
 
 
-gbt_model = gbt.fit(train)
+gbt_model = gbt.fit(
+    train_weighted
+)
 
 
-gbt_result = gbt_model.transform(test)
+gbt_result = gbt_model.transform(
+    test
+)
+
+
+print("GBT completed")
 
 
 
 # =====================================================
-# SAVE CLASSIFICATION RESULTS
+# SAVE CLASSIFICATION OUTPUT
 # =====================================================
 
-
-lr_result.write.mode("overwrite") \
+lr_result.write \
+    .mode("overwrite") \
     .parquet(
         "data/result_logistic.parquet"
     )
 
 
-dt_result.write.mode("overwrite") \
+dt_result.write \
+    .mode("overwrite") \
     .parquet(
         "data/result_tree.parquet"
     )
 
 
-rf_result.write.mode("overwrite") \
+rf_result.write \
+    .mode("overwrite") \
     .parquet(
         "data/result_rf.parquet"
     )
 
 
-gbt_result.write.mode("overwrite") \
+gbt_result.write \
+    .mode("overwrite") \
     .parquet(
         "data/result_gbt.parquet"
     )
@@ -152,9 +246,11 @@ gbt_result.write.mode("overwrite") \
 
 
 # =====================================================
-# KMEANS CLUSTERING
+# 5. KMEANS CLUSTERING
 # =====================================================
-
+#
+# Unsupervised descriptive analysis
+#
 
 kmeans = KMeans(
     k=5,
@@ -163,19 +259,48 @@ kmeans = KMeans(
 )
 
 
-kmeans_model = kmeans.fit(train)
+kmeans_model = kmeans.fit(
+    train
+)
 
 
-cluster_result = kmeans_model.transform(train)
+cluster_result = kmeans_model.transform(
+    train
+)
 
 
-cluster_result.write.mode("overwrite") \
+cluster_result.write \
+    .mode("overwrite") \
     .parquet(
         "data/result_cluster.parquet"
     )
 
 
-print("Models completed")
+print("KMeans completed")
+
+
+
+# =====================================================
+# FEATURE IMPORTANCE OUTPUT
+# =====================================================
+
+
+print("\nRandom Forest Feature Importance")
+
+print(
+    rf_model.featureImportances
+)
+
+
+print("\nDecision Tree Feature Importance")
+
+print(
+    dt_model.featureImportances
+)
+
+
+
+print("\nALL MODELS COMPLETED")
 
 
 spark.stop()
