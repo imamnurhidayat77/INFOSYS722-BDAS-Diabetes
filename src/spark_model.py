@@ -2,83 +2,94 @@ from spark_session import get_spark
 
 from pyspark.ml.classification import (
     LogisticRegression,
-    RandomForestClassifier
+    DecisionTreeClassifier,
+    RandomForestClassifier,
+    GBTClassifier
 )
+
+from pyspark.ml.clustering import KMeans
 
 
 spark = get_spark()
 
 
 print("==============================")
-print("STEP 5-7 MODEL TRAINING")
+print("STEP 7 - DATA MINING")
 print("==============================")
 
+
+# Load transformed data
 
 df = spark.read.parquet(
     "data/model_ready.parquet"
 )
 
 
-df = df.withColumnRenamed(
-    "Diabetes_binary",
-    "label"
+train = df.filter(
+    df.Partition == "Training"
 )
 
 
-train, test = df.randomSplit(
-    [0.8,0.2],
-    seed=42
+test = df.filter(
+    df.Partition == "Testing"
 )
 
 
-print("Training rows:")
+
+print("Training:")
 print(train.count())
 
-
-print("Testing rows:")
+print("Testing:")
 print(test.count())
 
 
-# --------------------------
-# Logistic Regression
-# --------------------------
+
+# =====================================================
+# LOGISTIC REGRESSION
+# =====================================================
 
 lr = LogisticRegression(
     featuresCol="features",
-    labelCol="label"
+    labelCol="Diabetes_binary",
+    maxIter=100
 )
 
 
 lr_model = lr.fit(train)
 
 
-lr_prediction = lr_model.transform(test)
+lr_result = lr_model.transform(test)
 
 
-print("\nLogistic Regression Result")
 
-lr_prediction.select(
-    "label",
-    "prediction",
-    "probability"
-).show(10)
+# =====================================================
+# DECISION TREE
+# =====================================================
 
-
-lr_prediction.write \
-    .mode("overwrite") \
-    .parquet(
-        "output/lr_prediction"
-    )
+dt = DecisionTreeClassifier(
+    featuresCol="features",
+    labelCol="Diabetes_binary",
+    maxDepth=5,
+    seed=42
+)
 
 
-# --------------------------
-# Random Forest
-# --------------------------
+dt_model = dt.fit(train)
+
+
+dt_result = dt_model.transform(test)
+
+
+
+# =====================================================
+# RANDOM FOREST
+# =====================================================
 
 rf = RandomForestClassifier(
     featuresCol="features",
-    labelCol="label",
+    labelCol="Diabetes_binary",
     numTrees=100,
+    maxDepth=8,
     seed=42
 )
 
@@ -86,26 +97,85 @@ rf = RandomForestClassifier(
 rf_model = rf.fit(train)
 
 
-rf_prediction = rf_model.transform(test)
+rf_result = rf_model.transform(test)
 
 
-print("\nRandom Forest Result")
 
-rf_prediction.select(
-    "label",
-    "prediction",
-    "probability"
-).show(10)
+# =====================================================
+# GRADIENT BOOSTED TREE
+# =====================================================
+
+gbt = GBTClassifier(
+    featuresCol="features",
+    labelCol="Diabetes_binary",
+    maxIter=50,
+    maxDepth=5,
+    seed=42
+)
 
 
-rf_prediction.write \
-    .mode("overwrite") \
+gbt_model = gbt.fit(train)
+
+
+gbt_result = gbt_model.transform(test)
+
+
+
+# =====================================================
+# SAVE CLASSIFICATION RESULTS
+# =====================================================
+
+
+lr_result.write.mode("overwrite") \
     .parquet(
-        "output/rf_prediction"
+        "data/result_logistic.parquet"
     )
 
 
-print("\nModel output saved")
+dt_result.write.mode("overwrite") \
+    .parquet(
+        "data/result_tree.parquet"
+    )
+
+
+rf_result.write.mode("overwrite") \
+    .parquet(
+        "data/result_rf.parquet"
+    )
+
+
+gbt_result.write.mode("overwrite") \
+    .parquet(
+        "data/result_gbt.parquet"
+    )
+
+
+
+# =====================================================
+# KMEANS CLUSTERING
+# =====================================================
+
+
+kmeans = KMeans(
+    k=5,
+    seed=42,
+    featuresCol="features"
+)
+
+
+kmeans_model = kmeans.fit(train)
+
+
+cluster_result = kmeans_model.transform(train)
+
+
+cluster_result.write.mode("overwrite") \
+    .parquet(
+        "data/result_cluster.parquet"
+    )
+
+
+print("Models completed")
 
 
 spark.stop()

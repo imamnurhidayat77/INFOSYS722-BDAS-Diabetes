@@ -5,90 +5,123 @@ from pyspark.ml.evaluation import (
     MulticlassClassificationEvaluator
 )
 
-import pandas as pd
-
 
 spark = get_spark()
 
 
 print("==============================")
-print("STEP 8 - MODEL EVALUATION")
+print("STEP 8 - INTERPRETATION")
 print("==============================")
 
 
-prediction = spark.read.parquet(
-    "output/rf_prediction"
-)
+models = {
+    "Logistic Regression":
+        "data/result_logistic.parquet",
+
+    "Decision Tree":
+        "data/result_tree.parquet",
+
+    "Random Forest":
+        "data/result_rf.parquet",
+
+    "GBT":
+        "data/result_gbt.parquet"
+}
 
 
-print("\nConfusion Matrix")
 
-prediction.groupBy(
-    "label",
-    "prediction"
-).count().show()
-
-
-# AUC
-
-auc_eval = BinaryClassificationEvaluator(
-    labelCol="label",
+binary_eval = BinaryClassificationEvaluator(
+    labelCol="Diabetes_binary",
+    rawPredictionCol="rawPrediction",
     metricName="areaUnderROC"
 )
 
 
-auc = auc_eval.evaluate(
-    prediction
+multi_eval = MulticlassClassificationEvaluator(
+    labelCol="Diabetes_binary"
 )
 
 
-# Accuracy
 
-acc_eval = MulticlassClassificationEvaluator(
-    labelCol="label",
-    predictionCol="prediction",
-    metricName="accuracy"
+for name,path in models.items():
+
+    print("\n================")
+    print(name)
+    print("================")
+
+
+    df = spark.read.parquet(path)
+
+
+    auc = binary_eval.evaluate(df)
+
+
+    accuracy = multi_eval.evaluate(
+        df,
+        {
+            "metricName":"accuracy"
+        }
+    )
+
+
+    precision = multi_eval.evaluate(
+        df,
+        {
+            "metricName":"weightedPrecision"
+        }
+    )
+
+
+    recall = multi_eval.evaluate(
+        df,
+        {
+            "metricName":"weightedRecall"
+        }
+    )
+
+
+    f1 = multi_eval.evaluate(
+        df,
+        {
+            "metricName":"f1"
+        }
+    )
+
+
+    print("AUC:", auc)
+    print("Accuracy:", accuracy)
+    print("Precision:", precision)
+    print("Recall:", recall)
+    print("F1:", f1)
+
+
+    print("Confusion Matrix")
+
+    df.groupBy(
+        "Diabetes_binary",
+        "prediction"
+    ).count().show()
+
+
+
+# =====================================================
+# CLUSTER EVALUATION
+# =====================================================
+
+cluster = spark.read.parquet(
+    "data/result_cluster.parquet"
 )
 
 
-accuracy = acc_eval.evaluate(
-    prediction
-)
+print("================")
+print("CLUSTER RESULT")
+print("================")
 
 
-print("AUC:")
-print(auc)
+cluster.groupBy(
+    "prediction"
+).count().show()
 
-
-print("Accuracy:")
-print(accuracy)
-
-
-
-# Save metrics
-
-metrics = pd.DataFrame(
-    {
-        "model": [
-            "Random Forest"
-        ],
-        "AUC": [
-            auc
-        ],
-        "Accuracy": [
-            accuracy
-        ]
-    }
-)
-
-
-metrics.to_csv(
-    "output/bdas_metrics.csv",
-    index=False
-)
-
-
-print("Saved: bdas_metrics.csv")
 
 
 spark.stop()
